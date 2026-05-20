@@ -1,16 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Button, Text, StyleSheet } from 'react-native';
-import MapView, { Marker, Region } from 'react-native-maps';
+import { useQuery } from '@tanstack/react-query';
 import * as Location from 'expo-location';
+import { useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, StyleSheet, View } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
 
-type ParkingMode = 'searching' | 'leaving' | null;
+import { claimParkingSpot, searchNearbySpots } from '@/api/spots';
+import { Button } from '@/components/button';
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import type { NearbySpot } from '@/types/database';
 
-export default function App() {
+export default function MapScreen() {
+  const router = useRouter();
+  const mapRef = useRef<MapView | null>(null);
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [parkingMode, setParkingMode] = useState<ParkingMode>(null);
-
-  const mapRef = useRef<MapView | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -19,62 +24,93 @@ export default function App() {
         setErrorMsg('Permesso di accesso alla posizione negato');
         return;
       }
-
       const loc = await Location.getCurrentPositionAsync({});
       setLocation(loc);
-
-      // Sposta la mappa alla posizione corrente
-      if (mapRef.current) {
-        mapRef.current.animateToRegion(
-          {
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          },
-          1000 // durata animazione in ms
-        );
-      }
+      mapRef.current?.animateToRegion(
+        {
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        },
+        800
+      );
     })();
   }, []);
 
-  const handleLeaveParkingSpot = () => {
-    setParkingMode('leaving');
-    alert('Parcheggio lasciato');
-  };
+  const { data: spots, refetch } = useQuery({
+    queryKey: ['spots', location?.coords.latitude, location?.coords.longitude],
+    enabled: !!location,
+    queryFn: () =>
+      searchNearbySpots({
+        latitude: location!.coords.latitude,
+        longitude: location!.coords.longitude,
+        radiusMeters: 1000,
+      }),
+    refetchInterval: 15000,
+  });
 
-  const handleSearchParkingSpot = () => {
-    setParkingMode('searching');
-    alert('Cerca parcheggio');
-  };
+  async function handleClaim(spot: NearbySpot) {
+    Alert.alert(
+      'Prenotare questo parcheggio?',
+      `Costa 10 punti. Reporter: @${spot.reporter_username}\nDistanza: ${Math.round(spot.distance_m)}m`,
+      [
+        { text: 'Annulla', style: 'cancel' },
+        {
+          text: 'Prenota',
+          onPress: async () => {
+            try {
+              await claimParkingSpot(spot.id);
+              await refetch();
+              Alert.alert('Parcheggio prenotato!', 'Apri il navigatore per raggiungerlo.');
+            } catch (e) {
+              Alert.alert('Errore', e instanceof Error ? e.message : String(e));
+            }
+          },
+        },
+      ]
+    );
+  }
+
+  if (!location) {
+    return (
+      <ThemedView style={styles.center}>
+        <ThemedText>{errorMsg ?? 'Caricamento posizione...'}</ThemedText>
+      </ThemedView>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      {location ? (
-        <MapView
-          ref={mapRef}
-          style={styles.map}
-          initialRegion={{
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          }}
-        >
+      <MapView
+        ref={mapRef}
+        style={styles.map}
+        showsUserLocation
+        showsMyLocationButton
+        initialRegion={{
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        }}
+      >
+        {spots?.map((spot) => (
           <Marker
-            coordinate={{
-              latitude: location.coords.latitude,
-              longitude: location.coords.longitude,
-            }}
-            title="La tua posizione"
+            key={spot.id}
+            coordinate={{ latitude: spot.latitude, longitude: spot.longitude }}
+            title={`@${spot.reporter_username}`}
+            description={`${Math.round(spot.distance_m)}m · ${spot.spot_type}`}
+            pinColor="#0a7ea4"
+            onCalloutPress={() => handleClaim(spot)}
           />
-        </MapView>
-      ) : (
-        <Text>{errorMsg || 'Caricamento posizione...'}</Text>
-      )}
-      <View style={styles.buttonContainer}>
-        <Button title="Lascia Parcheggio" onPress={handleLeaveParkingSpot} />
-        <Button title="Cerca Parcheggio" onPress={handleSearchParkingSpot} />
+        ))}
+      </MapView>
+
+      <View style={styles.bottomBar}>
+        <Button
+          title="Segnala parcheggio"
+          onPress={() => router.push('/report')}
+        />
       </View>
     </View>
   );
@@ -83,9 +119,11 @@ export default function App() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    padding: 10,
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  bottomBar: {
+    position: 'absolute',
+    bottom: 24,
+    left: 24,
+    right: 24,
   },
 });

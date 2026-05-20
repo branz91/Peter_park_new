@@ -1,50 +1,104 @@
-# Welcome to your Expo app 👋
+# PeterPark
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+App per **segnalare e trovare parcheggi liberi**, con sistema a punti e feedback.
+Stack: **Expo (React Native + Web) + TypeScript + Supabase (PostgreSQL + PostGIS)**.
 
-## Get started
+## Architettura
 
-1. Install dependencies
+```
+app/                  # File-based routing (expo-router)
+  (auth)/             # welcome, login, register
+  (tabs)/             # mappa, profilo
+  report.tsx          # modale segnalazione
 
-   ```bash
-   npm install
-   ```
+api/                  # Layer di astrazione (auth.ts, spots.ts, profile.ts)
+                      # Le schermate chiamano solo queste funzioni, non Supabase.
+                      # Cambiare backend = sostituire questi file.
 
-2. Start the app
+lib/supabase.ts       # Client Supabase configurato
+stores/auth.ts        # Stato globale auth (Zustand)
+components/           # UI riusabile (Button, TextField, Themed*)
+hooks/                # Hook condivisi
+constants/theme.ts    # Palette colori + font
 
-   ```bash
-   npx expo start
-   ```
+supabase/migrations/
+  0001_init.sql       # Schema PostGIS + tabelle + RPC + RLS
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+types/database.ts     # Tipi TypeScript del DB
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+**Principio chiave**: la logica di business (punti, anti-frode, query geo) sta nelle
+**RPC PostgreSQL** in `supabase/migrations/0001_init.sql`. Il client NON puo' barare:
+gestisce solo UI e chiama le RPC.
 
-## Learn more
+## Setup
 
-To learn more about developing your project with Expo, look at the following resources:
+### 1. Crea il progetto Supabase
+- Vai su [supabase.com](https://supabase.com), crea un nuovo progetto.
+- Project Settings → API: copia **Project URL** e **anon public key**.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### 2. Configura le variabili d'ambiente
+Crea `.env.local` nella root (NON committarlo):
 
-## Join the community
+```
+EXPO_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGci...
+```
 
-Join our community of developers creating universal apps.
+### 3. Esegui la migration SQL
+- Supabase Dashboard → **SQL Editor** → New query.
+- Incolla il contenuto di `supabase/migrations/0001_init.sql`.
+- Run. Crea tabelle, RPC, RLS, trigger e abilita PostGIS.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+### 4. Cron job (opzionale ma consigliato)
+Per scadere automaticamente le segnalazioni vecchie:
+- Dashboard → **Database → Extensions** → abilita `pg_cron`.
+- SQL Editor:
+
+```sql
+select cron.schedule('expire-old-spots', '* * * * *', $$select public.expire_old_spots()$$);
+```
+
+### 5. Avvia l'app
+
+```powershell
+npm install
+npm run start
+```
+
+Per iOS/Android servono **EAS Build** o un Development Build (i mock `expo-go`
+non supportano alcuni moduli nativi a lungo termine).
+
+## Sistema a punti (logica server-side)
+
+| Azione                                | Punti  | Note                                                       |
+|---------------------------------------|--------|------------------------------------------------------------|
+| Registrazione                         | +50    | Bonus iniziale (trigger `tg_handle_new_user`)              |
+| Segnalo un parcheggio                 | +5     | RPC `create_parking_spot` (provvisori)                     |
+| Un altro lo prende e conferma         | +10    | RPC `submit_feedback` (was_available=true)                 |
+| Lascio un feedback                    | +2     | Bonus engagement                                           |
+| Prendo un parcheggio                  | -10    | RPC `claim_parking_spot`                                   |
+| 2+ feedback negativi sulla mia spot   | -20    | Reputazione abbassata, spot marcata invalida               |
+
+Anti-spam:
+- Max 5 segnalazioni / 24h per utente
+- Distanza minima 50m tra segnalazioni attive dello stesso utente
+
+## Schermate
+
+- **Welcome / Login / Register** → autenticazione con email + password
+- **Mappa (home)** → mostra parcheggi attivi nel raggio di 1km, refresh ogni 15s
+- **Modale segnalazione** → tipo parcheggio, durata, note, posizione GPS
+- **Profilo** → punti correnti, statistiche, storico transazioni, logout
+
+## Roadmap prossimi step
+
+- [ ] Realtime: push live nuovi spot via `supabase.channel().on('postgres_changes', ...)`
+- [ ] Geofencing arrivo → notifica "Sei arrivato? lascia feedback"
+- [ ] Foto del parcheggio (Supabase Storage)
+- [ ] Cluster marker quando densita' alta (`react-native-maps-clustering`)
+- [ ] Mock location detection
+- [ ] i18n (it/en)
+- [ ] Sentry per error tracking
+- [ ] Apple/Google Sign-In
+- [ ] Notifiche push (`expo-notifications`)
