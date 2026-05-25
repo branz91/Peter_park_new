@@ -35,8 +35,10 @@ export default function LoginScreen() {
       style={{ flex: 1 }}
     >
       <ThemedView style={styles.container}>
-        <ThemedText type="title">Accedi</ThemedText>
-        <ThemedText style={styles.subtitle}>Bentornato su PeterPark.</ThemedText>
+        <View style={styles.header}>
+          <ThemedText type="title">Accedi</ThemedText>
+          <ThemedText type="muted">Bentornato su PeterPark.</ThemedText>
+        </View>
 
         <View style={styles.form}>
           <TextField
@@ -58,7 +60,7 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.footer}>
-          <ThemedText>Non hai un account? </ThemedText>
+          <ThemedText type="muted">Non hai un account? </ThemedText>
           <Link href="/(auth)/register">
             <ThemedText type="link">Registrati</ThemedText>
           </Link>
@@ -69,8 +71,8 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, gap: 8 },
-  subtitle: { opacity: 0.7, marginBottom: 16 },
-  form: { gap: 12 },
-  footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
+  container: { flex: 1, padding: 24, paddingTop: 64, gap: 24 },
+  header: { gap: 6 },
+  form: { gap: 16 },
+  footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 8 },
 });

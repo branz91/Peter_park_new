@@ -73,6 +73,7 @@ function mapSpotError(err: { message: string }): Error {
     cannot_claim_own_spot: 'Non puoi prendere un parcheggio che hai segnalato tu.',
     insufficient_points: 'Punti insufficienti (servono 10 punti).',
     cannot_feedback_own_spot: 'Non puoi lasciare un feedback su un tuo parcheggio.',
+    feedbacks_spot_id_user_id_key: 'Hai gia lasciato un feedback per questo parcheggio.',
   };
   for (const code of Object.keys(messages)) {
     if (err.message.includes(code)) return new Error(messages[code]);

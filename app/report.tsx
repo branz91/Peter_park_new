@@ -1,16 +1,19 @@
 import { useQueryClient } from '@tanstack/react-query';
-import * as Location from 'expo-location';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { uploadSpotPhoto } from '@/api/storage';
 import { reportParkingSpot } from '@/api/spots';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useCurrentLocation } from '@/hooks/use-current-location';
+import { useTheme } from '@/hooks/use-theme';
+import { useAuthStore } from '@/stores/auth';
 import type { SpotType } from '@/types/database';
 
 const SPOT_TYPES: { value: SpotType; label: string }[] = [
@@ -27,44 +30,79 @@ const DURATIONS = [5, 10, 15, 30];
 export default function ReportScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const scheme = useColorScheme() ?? 'light';
-  const tint = Colors[scheme].tint;
+  const { colors } = useTheme();
+  const userId = useAuthStore((s) => s.session?.user.id);
+  const { location, status: locationStatus, error: locationError, retry: retryLocation } = useCurrentLocation();
 
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [spotType, setSpotType] = useState<SpotType>('free');
   const [duration, setDuration] = useState(10);
   const [notes, setNotes] = useState('');
+  const [photo, setPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permesso necessario', 'Serve l accesso alla posizione per segnalare.');
-        router.back();
-        return;
-      }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      setLocation(loc);
-    })();
-  }, [router]);
+    if (locationStatus === 'denied') {
+      Alert.alert(
+        'Permesso necessario',
+        'Serve l accesso alla posizione per segnalare un parcheggio.',
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
+    }
+  }, [locationStatus, router]);
+
+  async function pickPhoto(source: 'camera' | 'library') {
+    const permission =
+      source === 'camera'
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        'Permesso negato',
+        source === 'camera'
+          ? 'Per scattare una foto serve il permesso fotocamera.'
+          : 'Per scegliere una foto serve il permesso galleria.'
+      );
+      return;
+    }
+    const result =
+      source === 'camera'
+        ? await ImagePicker.launchCameraAsync({
+            mediaTypes: ['images'],
+            quality: 0.6,
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            quality: 0.6,
+          });
+    if (result.canceled || result.assets.length === 0) return;
+    setPhoto(result.assets[0]);
+  }
 
   async function handleSubmit() {
     if (!location) return;
     setLoading(true);
     try {
+      let photoUrl: string | null = null;
+      if (photo && userId) {
+        photoUrl = await uploadSpotPhoto({
+          userId,
+          fileUri: photo.uri,
+          contentType: photo.mimeType ?? 'image/jpeg',
+        });
+      }
       await reportParkingSpot({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
         spotType,
         notes: notes.trim() || null,
+        photoUrl,
         durationMinutes: duration,
       });
       await queryClient.invalidateQueries({ queryKey: ['spots'] });
       await queryClient.invalidateQueries({ queryKey: ['me'] });
       Alert.alert(
         'Segnalazione inviata!',
-        '+5 punti provvisori. Verranno confermati quando un altro utente lo prendera.',
+        'Riceverai +10 punti quando un altro utente confermera che il parcheggio era davvero libero.',
         [{ text: 'OK', onPress: () => router.back() }]
       );
     } catch (e) {
@@ -88,12 +126,17 @@ export default function ReportScreen() {
                 style={[
                   styles.chip,
                   {
-                    backgroundColor: active ? tint : 'transparent',
-                    borderColor: tint,
+                    backgroundColor: active ? colors.tint : colors.surface,
+                    borderColor: active ? colors.tint : colors.border,
                   },
                 ]}
               >
-                <ThemedText style={{ color: active ? '#fff' : tint, fontWeight: '600' }}>
+                <ThemedText
+                  style={{
+                    color: active ? colors.onTint : colors.text,
+                    fontWeight: '600',
+                  }}
+                >
                   {t.label}
                 </ThemedText>
               </Pressable>
@@ -111,13 +154,19 @@ export default function ReportScreen() {
                 onPress={() => setDuration(d)}
                 style={[
                   styles.chip,
+                  styles.chipDuration,
                   {
-                    backgroundColor: active ? tint : 'transparent',
-                    borderColor: tint,
+                    backgroundColor: active ? colors.tint : colors.surface,
+                    borderColor: active ? colors.tint : colors.border,
                   },
                 ]}
               >
-                <ThemedText style={{ color: active ? '#fff' : tint, fontWeight: '600' }}>
+                <ThemedText
+                  style={{
+                    color: active ? colors.onTint : colors.text,
+                    fontWeight: '600',
+                  }}
+                >
                   {d}
                 </ThemedText>
               </Pressable>
@@ -133,25 +182,77 @@ export default function ReportScreen() {
           multiline
         />
 
-        <Button title="Pubblica segnalazione" onPress={handleSubmit} loading={loading} />
-        <ThemedText style={styles.hint}>
-          {location
-            ? 'Verra usata la tua posizione attuale.'
-            : 'Recupero posizione...'}
-        </ThemedText>
+        <ThemedText style={styles.label}>Foto (opzionale)</ThemedText>
+        {photo ? (
+          <View style={styles.photoBox}>
+            <Image
+              source={{ uri: photo.uri }}
+              style={[styles.photo, { backgroundColor: colors.surfaceMuted }]}
+              contentFit="cover"
+            />
+            <View style={styles.photoActions}>
+              <View style={styles.photoActionItem}>
+                <Button title="Cambia" variant="ghost" onPress={() => pickPhoto('library')} />
+              </View>
+              <View style={styles.photoActionItem}>
+                <Button title="Rimuovi" variant="danger" onPress={() => setPhoto(null)} />
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.photoButtons}>
+            <View style={styles.photoActionItem}>
+              <Button title="Scatta foto" variant="secondary" onPress={() => pickPhoto('camera')} />
+            </View>
+            <View style={styles.photoActionItem}>
+              <Button title="Dalla galleria" variant="secondary" onPress={() => pickPhoto('library')} />
+            </View>
+          </View>
+        )}
+
+        <Button
+          title="Pubblica segnalazione"
+          onPress={handleSubmit}
+          loading={loading}
+          disabled={!location}
+        />
+        {location ? (
+          <ThemedText style={styles.hint}>Verra usata la tua posizione attuale.</ThemedText>
+        ) : locationStatus === 'loading' ? (
+          <ThemedText style={styles.hint}>Recupero posizione...</ThemedText>
+        ) : (
+          <View style={styles.locationError}>
+            <ThemedText style={styles.hint}>
+              {locationError ?? 'Posizione non disponibile.'}
+            </ThemedText>
+            <Button title="Riprova" variant="ghost" onPress={retryLocation} />
+          </View>
+        )}
       </ScrollView>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 24, gap: 12 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  container: { padding: 24, paddingTop: 48, gap: 14 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingVertical: 10,
+    borderRadius: 999,
     borderWidth: 1,
   },
-  hint: { textAlign: 'center', opacity: 0.6, fontSize: 12, marginTop: 8 },
+  chipDuration: { minWidth: 56, alignItems: 'center' },
+  hint: { textAlign: 'center', fontSize: 12, marginTop: 4, opacity: 0.7 },
+  label: { marginTop: 4, fontWeight: '700' },
+  photoButtons: { flexDirection: 'row', gap: 8 },
+  photoBox: { gap: 8 },
+  photo: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    borderRadius: 14,
+  },
+  photoActions: { flexDirection: 'row', gap: 8 },
+  photoActionItem: { flex: 1 },
+  locationError: { gap: 8, marginTop: 4 },
 });

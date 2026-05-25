@@ -1,47 +1,66 @@
-import { StyleSheet, TextInput, TextInputProps, View } from 'react-native';
+import { useState } from 'react';
+import { StyleSheet, TextInput, type TextInputProps, View } from 'react-native';
 
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useTheme } from '@/hooks/use-theme';
 
 import { ThemedText } from './themed-text';
 
 type TextFieldProps = TextInputProps & {
   label?: string;
+  error?: string;
 };
 
-export function TextField({ label, style, ...rest }: TextFieldProps) {
-  const scheme = useColorScheme() ?? 'light';
-  const colors = Colors[scheme];
-  const borderColor = scheme === 'dark' ? '#333' : '#d9d9d9';
+export function TextField({ label, error, style, onFocus, onBlur, ...rest }: TextFieldProps) {
+  const { colors } = useTheme();
+  const [focused, setFocused] = useState(false);
+
+  const borderColor = error
+    ? colors.danger
+    : focused
+    ? colors.tint
+    : colors.border;
 
   return (
     <View style={styles.wrapper}>
-      {label ? <ThemedText style={styles.label}>{label}</ThemedText> : null}
+      {label ? <ThemedText style={[styles.label, { color: colors.textMuted }]}>{label}</ThemedText> : null}
       <TextInput
-        placeholderTextColor={colors.icon}
+        placeholderTextColor={colors.textMuted}
+        onFocus={(e) => {
+          setFocused(true);
+          onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setFocused(false);
+          onBlur?.(e);
+        }}
         style={[
           styles.input,
           {
             color: colors.text,
             borderColor,
-            backgroundColor: scheme === 'dark' ? '#1c1f21' : '#fafafa',
+            backgroundColor: colors.surface,
           },
           style,
         ]}
         {...rest}
       />
+      {error ? (
+        <ThemedText style={[styles.error, { color: colors.danger }]}>{error}</ThemedText>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: { gap: 6 },
-  label: { fontSize: 14, opacity: 0.7 },
+  label: { fontSize: 13, fontWeight: '600', letterSpacing: 0.2 },
   input: {
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
+    minHeight: 50,
+    borderRadius: 14,
+    borderWidth: 1.5,
     paddingHorizontal: 16,
+    paddingVertical: 12,
     fontSize: 16,
   },
+  error: { fontSize: 12, marginTop: 2 },
 });

@@ -6,8 +6,10 @@ import { getMyPointsHistory, getMyProfile } from '@/api/profile';
 import { Button } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useTheme } from '@/hooks/use-theme';
 
 export default function ProfileScreen() {
+  const { colors } = useTheme();
   const { data: profile } = useQuery({ queryKey: ['me'], queryFn: getMyProfile });
   const { data: history } = useQuery({
     queryKey: ['me', 'history'],
@@ -25,7 +27,7 @@ export default function ProfileScreen() {
   if (!profile) {
     return (
       <ThemedView style={styles.center}>
-        <ThemedText>Caricamento profilo...</ThemedText>
+        <ThemedText type="muted">Caricamento profilo...</ThemedText>
       </ThemedView>
     );
   }
@@ -34,13 +36,43 @@ export default function ProfileScreen() {
     <ThemedView style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.header}>
-          <ThemedText type="title">@{profile.username}</ThemedText>
-          <ThemedText style={styles.points}>{profile.points} punti</ThemedText>
+          <View style={[styles.avatar, { backgroundColor: colors.tint }]}>
+            <ThemedText style={[styles.avatarLetter, { color: colors.onTint }]}>
+              {profile.username.charAt(0).toUpperCase()}
+            </ThemedText>
+          </View>
+          <ThemedText type="title" style={styles.username}>
+            @{profile.username}
+          </ThemedText>
         </View>
 
-        <View style={styles.statsRow}>
+        <View style={[styles.pointsCard, { backgroundColor: colors.tint }]}>
+          <ThemedText style={[styles.pointsValue, { color: colors.onTint }]}>
+            {profile.points}
+          </ThemedText>
+          <ThemedText style={[styles.pointsLabel, { color: colors.onTint }]}>
+            punti totali
+          </ThemedText>
+          <View style={[styles.reputationRow, { borderTopColor: 'rgba(255,255,255,0.2)' }]}>
+            <ThemedText style={[styles.reputationLabel, { color: colors.onTint }]}>
+              Reputazione
+            </ThemedText>
+            <ThemedText style={[styles.reputationValue, { color: colors.onTint }]}>
+              {(profile.reputation * 100).toFixed(0)}%
+            </ThemedText>
+          </View>
+        </View>
+
+        <View
+          style={[
+            styles.statsRow,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}
+        >
           <Stat label="Segnalazioni" value={profile.total_reports} />
+          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
           <Stat label="Trovati" value={profile.total_claims} />
+          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
           <Stat label="Feedback" value={profile.total_feedbacks} />
         </View>
 
@@ -48,18 +80,40 @@ export default function ProfileScreen() {
           Storico punti
         </ThemedText>
 
-        <View style={styles.history}>
+        <View
+          style={[
+            styles.historyCard,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}
+        >
           {history?.length ? (
-            history.map((tx) => (
-              <View key={tx.id} style={styles.txRow}>
+            history.map((tx, idx) => (
+              <View
+                key={tx.id}
+                style={[
+                  styles.txRow,
+                  idx < history.length - 1 && {
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: colors.border,
+                  },
+                ]}
+              >
                 <View style={{ flex: 1 }}>
-                  <ThemedText>{formatReason(tx.reason)}</ThemedText>
-                  <ThemedText style={styles.txDate}>
-                    {new Date(tx.created_at).toLocaleString('it-IT')}
+                  <ThemedText style={styles.txReason}>{formatReason(tx.reason)}</ThemedText>
+                  <ThemedText type="muted" style={styles.txDate}>
+                    {new Date(tx.created_at).toLocaleString('it-IT', {
+                      day: '2-digit',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
                   </ThemedText>
                 </View>
                 <ThemedText
-                  style={[styles.txDelta, { color: tx.delta >= 0 ? '#2c7' : '#d33' }]}
+                  style={[
+                    styles.txDelta,
+                    { color: tx.delta >= 0 ? colors.success : colors.danger },
+                  ]}
                 >
                   {tx.delta > 0 ? '+' : ''}
                   {tx.delta}
@@ -67,11 +121,13 @@ export default function ProfileScreen() {
               </View>
             ))
           ) : (
-            <ThemedText style={{ opacity: 0.6 }}>Nessuna transazione ancora.</ThemedText>
+            <ThemedText type="muted" style={{ padding: 16, textAlign: 'center' }}>
+              Nessuna transazione ancora.
+            </ThemedText>
           )}
         </View>
 
-        <View style={{ marginTop: 24 }}>
+        <View style={styles.logoutWrap}>
           <Button title="Esci" variant="danger" onPress={handleSignOut} />
         </View>
       </ScrollView>
@@ -83,7 +139,7 @@ function Stat({ label, value }: { label: string; value: number }) {
   return (
     <View style={styles.stat}>
       <ThemedText type="subtitle">{value}</ThemedText>
-      <ThemedText style={{ opacity: 0.7, fontSize: 13 }}>{label}</ThemedText>
+      <ThemedText type="muted" style={styles.statLabel}>{label}</ThemedText>
     </View>
   );
 }
@@ -104,27 +160,63 @@ function formatReason(reason: string): string {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 24, paddingTop: 64, gap: 16 },
+  container: { padding: 24, paddingTop: 64, gap: 20 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  header: { alignItems: 'center', gap: 6 },
-  points: { fontSize: 28, fontWeight: 'bold' },
+  header: { alignItems: 'center', gap: 12 },
+  avatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarLetter: {
+    fontSize: 32,
+    fontWeight: '800',
+  },
+  username: { textAlign: 'center' },
+  pointsCard: {
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    gap: 4,
+  },
+  pointsValue: { fontSize: 48, fontWeight: '800', letterSpacing: -1, lineHeight: 52 },
+  pointsLabel: { fontSize: 14, opacity: 0.85, fontWeight: '600', letterSpacing: 0.3 },
+  reputationRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    paddingTop: 14,
+    marginTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  reputationLabel: { fontSize: 13, opacity: 0.85, fontWeight: '500' },
+  reputationValue: { fontSize: 16, fontWeight: '700' },
   statsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    alignItems: 'center',
     paddingVertical: 16,
-    borderRadius: 14,
-    backgroundColor: 'rgba(127,127,127,0.08)',
+    borderRadius: 16,
+    borderWidth: 1,
   },
-  stat: { alignItems: 'center' },
-  section: { marginTop: 12 },
-  history: { gap: 8 },
+  stat: { flex: 1, alignItems: 'center' },
+  statLabel: { fontSize: 12, marginTop: 2 },
+  statDivider: { width: 1, height: 32, alignSelf: 'center' },
+  section: { marginTop: 4 },
+  historyCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+  },
   txRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(127,127,127,0.2)',
+    paddingVertical: 14,
   },
-  txDate: { opacity: 0.5, fontSize: 12 },
-  txDelta: { fontSize: 18, fontWeight: '700' },
+  txReason: { fontWeight: '600' },
+  txDate: { fontSize: 12 },
+  txDelta: { fontSize: 18, fontWeight: '800' },
+  logoutWrap: { marginTop: 12, marginBottom: 24 },
 });

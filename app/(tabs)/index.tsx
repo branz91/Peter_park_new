@@ -1,42 +1,36 @@
 import { useQuery } from '@tanstack/react-query';
-import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useRef } from 'react';
+import { Alert, Platform, StyleSheet, View } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 
 import { claimParkingSpot, searchNearbySpots } from '@/api/spots';
 import { Button } from '@/components/button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useCurrentLocation } from '@/hooks/use-current-location';
+import { useSpotsRealtime } from '@/hooks/use-spots-realtime';
+import { useTheme } from '@/hooks/use-theme';
 import type { NearbySpot } from '@/types/database';
 
 export default function MapScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
   const mapRef = useRef<MapView | null>(null);
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const { location, status, error, retry } = useCurrentLocation();
 
   useEffect(() => {
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setErrorMsg('Permesso di accesso alla posizione negato');
-        return;
-      }
-      const loc = await Location.getCurrentPositionAsync({});
-      setLocation(loc);
-      mapRef.current?.animateToRegion(
-        {
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        },
-        800
-      );
-    })();
-  }, []);
+    if (!location) return;
+    mapRef.current?.animateToRegion(
+      {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      },
+      800
+    );
+  }, [location]);
 
   const { data: spots, refetch } = useQuery({
     queryKey: ['spots', location?.coords.latitude, location?.coords.longitude],
@@ -47,8 +41,16 @@ export default function MapScreen() {
         longitude: location!.coords.longitude,
         radiusMeters: 1000,
       }),
-    refetchInterval: 15000,
+    // Fallback nel caso il websocket realtime non sia disponibile
+    refetchInterval: 60000,
   });
+
+  // Aggiorna la mappa in tempo reale quando arriva un INSERT/UPDATE/DELETE
+  // sui parking_spots. Evita il polling stretto sopra.
+  const handleRealtimeChange = useCallback(() => {
+    refetch();
+  }, [refetch]);
+  useSpotsRealtime({ enabled: !!location, onChange: handleRealtimeChange });
 
   async function handleClaim(spot: NearbySpot) {
     Alert.alert(
@@ -62,7 +64,24 @@ export default function MapScreen() {
             try {
               await claimParkingSpot(spot.id);
               await refetch();
-              Alert.alert('Parcheggio prenotato!', 'Apri il navigatore per raggiungerlo.');
+              Alert.alert(
+                'Parcheggio prenotato!',
+                'Apri il navigatore per raggiungerlo. Quando arrivi torna qui per lasciare un feedback.',
+                [
+                  { text: 'Piu tardi', style: 'cancel' },
+                  {
+                    text: 'Dai feedback ora',
+                    onPress: () =>
+                      router.push({
+                        pathname: '/feedback',
+                        params: {
+                          spotId: spot.id,
+                          reporter: spot.reporter_username,
+                        },
+                      }),
+                  },
+                ]
+              );
             } catch (e) {
               Alert.alert('Errore', e instanceof Error ? e.message : String(e));
             }
@@ -75,7 +94,26 @@ export default function MapScreen() {
   if (!location) {
     return (
       <ThemedView style={styles.center}>
-        <ThemedText>{errorMsg ?? 'Caricamento posizione...'}</ThemedText>
+        <View
+          style={[
+            styles.centerCard,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}
+        >
+          <ThemedText type="subtitle" style={styles.centerText}>
+            {status === 'loading' ? 'Caricamento posizione...' : 'Posizione non disponibile'}
+          </ThemedText>
+          {status !== 'loading' && error ? (
+            <ThemedText type="muted" style={styles.centerText}>
+              {error}
+            </ThemedText>
+          ) : null}
+          {status !== 'loading' && (
+            <View style={styles.retryButton}>
+              <Button title="Riprova" onPress={retry} />
+            </View>
+          )}
+        </View>
       </ThemedView>
     );
   }
@@ -100,17 +138,32 @@ export default function MapScreen() {
             coordinate={{ latitude: spot.latitude, longitude: spot.longitude }}
             title={`@${spot.reporter_username}`}
             description={`${Math.round(spot.distance_m)}m · ${spot.spot_type}`}
-            pinColor="#0a7ea4"
+            pinColor={colors.tint}
             onCalloutPress={() => handleClaim(spot)}
           />
         ))}
       </MapView>
 
-      <View style={styles.bottomBar}>
-        <Button
-          title="Segnala parcheggio"
-          onPress={() => router.push('/report')}
-        />
+      <View
+        style={[
+          styles.bottomBar,
+          { backgroundColor: colors.background },
+          Platform.OS === 'ios'
+            ? {
+                shadowColor: '#000',
+                shadowOpacity: 0.15,
+                shadowOffset: { width: 0, height: -2 },
+                shadowRadius: 10,
+              }
+            : { elevation: 8 },
+        ]}
+      >
+        <Button title="Segnala parcheggio" onPress={() => router.push('/report')} />
+        {spots && spots.length === 0 ? (
+          <ThemedText type="muted" style={styles.bottomHint}>
+            Nessun parcheggio segnalato qui intorno. Sii il primo!
+          </ThemedText>
+        ) : null}
       </View>
     </View>
   );
@@ -119,11 +172,26 @@ export default function MapScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  centerCard: {
+    padding: 24,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    gap: 12,
+    maxWidth: 360,
+    width: '100%',
+  },
+  centerText: { textAlign: 'center' },
+  retryButton: { minWidth: 200, alignSelf: 'stretch', marginTop: 4 },
   bottomBar: {
     position: 'absolute',
-    bottom: 24,
-    left: 24,
-    right: 24,
+    bottom: 20,
+    left: 16,
+    right: 16,
+    padding: 12,
+    borderRadius: 18,
+    gap: 8,
   },
+  bottomHint: { textAlign: 'center', fontSize: 12 },
 });

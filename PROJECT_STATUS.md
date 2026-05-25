@@ -11,7 +11,7 @@
 
 App mobile + web per **segnalare e trovare parcheggi liberi**, con:
 
-- **Sistema a punti**: bonus iniziale 50 punti, +5 per segnalare, +10 conferma da feedback positivo, +2 per feedback, -10 per prenotare un parcheggio.
+- **Sistema a punti**: bonus iniziale 50 punti, **+10 al reporter SOLO quando un altro utente conferma con feedback positivo** (niente bonus immediato alla creazione), +2 per ogni feedback, -10 per prenotare un parcheggio, -20 al reporter su 2 feedback negativi.
 - **Feedback** dopo l'arrivo (era libero? rating, commento). Genera bonus al reporter o penalita' se palesemente falso.
 - **Anti-frode**: rate limiting, distanza minima tra segnalazioni, reputazione utente, logica server-side.
 - **Autenticazione** via email/password (estendibile ad Apple/Google).
@@ -88,6 +88,26 @@ supabase/
 - [x] Schermata segnalazione (chip per tipo parcheggio, durata, note opzionali)
 - [x] UI riusabile (`Button`, `TextField`) tematizzata light/dark
 
+### Realtime mappa (FATTO)
+
+- [x] Hook `hooks/use-spots-realtime.ts` che sottoscrive il channel `parking_spots_changes`
+- [x] La mappa (`app/(tabs)/index.tsx`) invalida la query su ogni INSERT/UPDATE/DELETE
+- [x] Polling ridotto a 60s come fallback (non piu' 15s)
+
+### Feedback dopo claim (FATTO)
+
+- [x] `app/feedback.tsx`: form con "era libero?" + voto opzionale + commento
+- [x] Dopo il claim, l'Alert offre il pulsante "Dai feedback ora" che apre la schermata
+- [x] Mapping errore `feedbacks_spot_id_user_id_key` (un solo feedback per spot per utente) in `api/spots.ts`
+
+### Foto parcheggio (FATTO — richiede migration 0002)
+
+- [x] `expo-image-picker` installato e configurato in `app.json`
+- [x] `api/storage.ts` con `uploadSpotPhoto(userId, fileUri, contentType?)`
+- [x] `app/report.tsx`: pulsanti "Scatta foto" / "Dalla galleria", preview con `expo-image`, upload prima del create
+- [x] Migration `supabase/migrations/0002_storage.sql`: bucket `spot-photos` (public read) + 4 policy (insert/update/delete solo nella propria cartella `<user_id>/*`)
+- [ ] **Da applicare in Supabase**: copia/incolla `0002_storage.sql` nel SQL Editor (come hai gia' fatto per 0001)
+
 ### Schema SQL (DA APPLICARE SU SUPABASE — vedi sezione 6)
 
 Il file `supabase/migrations/0001_init.sql` e' pronto e contiene:
@@ -114,10 +134,13 @@ Il file `supabase/migrations/0001_init.sql` e' pronto e contiene:
 
 ### Subito (prossimi step ad alto impatto)
 
-- [ ] **Applicare la migration SQL su Supabase** ← BLOCCATO finche' non sei su un computer x86
+- [x] **Applicare la migration SQL su Supabase** (0001 fatto)
+- [ ] **Applicare la migration 0002_storage.sql** per abilitare le foto (vedi sezione 6.4 bis)
+- [ ] **Applicare la migration 0003_points_only_on_confirm.sql** per togliere i +5 immediati al report
 - [ ] **Test end-to-end** del flusso completo (registrazione → segnalazione → claim → feedback) per verificare che tutte le RPC funzionino
-- [ ] **Realtime live**: sottoscrizione `supabase.channel().on('postgres_changes', ...)` nella mappa per vedere comparire nuovi spot senza polling
-- [ ] **Foto parcheggio**: Supabase Storage + `expo-image-picker`; il campo `photo_url` e' gia' nel DB
+- [x] **Realtime live**: sottoscrizione `supabase.channel().on('postgres_changes', ...)` nella mappa per vedere comparire nuovi spot senza polling
+- [x] **Foto parcheggio**: Supabase Storage + `expo-image-picker`; il campo `photo_url` e' gia' nel DB
+- [ ] **Banner "prenotazione senza feedback"** sulla mappa per chi chiude l'alert post-claim (oggi se l'utente sceglie "Piu tardi" non ha piu' un punto di ingresso al form feedback)
 
 ### Medio termine
 
@@ -179,6 +202,13 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGci...
 3. Copia tutto il contenuto, incolla nell'editor SQL di Supabase
 4. **Run**
 5. Verifica: vai su **Database → Tables** → devi vedere `profiles`, `parking_spots`, `feedbacks`, `points_transactions`
+
+### 6.4 bis Applica la migration 0002 (bucket foto)
+
+1. Apri `supabase/migrations/0002_storage.sql`
+2. Copia tutto, incollalo nel SQL Editor di Supabase, **Run**
+3. Verifica: vai su **Storage** → deve esserci il bucket `spot-photos` (Public)
+4. Verifica policy: **Database → Policies → storage.objects** → vedi 4 policy `spot_photos_*`
 
 ### 6.5 (Opzionale) Cron per scadenza automatica spot
 

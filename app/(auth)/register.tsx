@@ -49,10 +49,10 @@ export default function RegisterScreen() {
       style={{ flex: 1 }}
     >
       <ThemedView style={styles.container}>
-        <ThemedText type="title">Registrati</ThemedText>
-        <ThemedText style={styles.subtitle}>
-          Bonus di benvenuto: 50 punti per iniziare.
-        </ThemedText>
+        <View style={styles.header}>
+          <ThemedText type="title">Registrati</ThemedText>
+          <ThemedText type="muted">Bonus di benvenuto: 50 punti per iniziare.</ThemedText>
+        </View>
 
         <View style={styles.form}>
           <TextField
@@ -80,7 +80,7 @@ export default function RegisterScreen() {
         </View>
 
         <View style={styles.footer}>
-          <ThemedText>Hai gia un account? </ThemedText>
+          <ThemedText type="muted">Hai gia un account? </ThemedText>
           <Link href="/(auth)/login">
             <ThemedText type="link">Accedi</ThemedText>
           </Link>
@@ -91,8 +91,8 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, gap: 8 },
-  subtitle: { opacity: 0.7, marginBottom: 16 },
-  form: { gap: 12 },
-  footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 24 },
+  container: { flex: 1, padding: 24, paddingTop: 64, gap: 24 },
+  header: { gap: 6 },
+  form: { gap: 16 },
+  footer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 8 },
 });

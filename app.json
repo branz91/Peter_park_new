@@ -43,6 +43,13 @@
         }
       ],
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "PeterPark accede alle tue foto per allegare un'immagine al parcheggio che segnali.",
+          "cameraPermission": "PeterPark accede alla fotocamera per scattare una foto del parcheggio che segnali."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
