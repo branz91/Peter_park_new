@@ -305,3 +305,106 @@ npx supabase gen types typescript --project-id <ID> > types/database.ts
 
 - GitHub: https://github.com/branz91/Peter_park_new
 - Branch attivo: `main`
+
+---
+
+## 11. Distribuzione (far provare l'app a un beta tester iOS)
+
+Identifier gia' configurato in `app.json`:
+
+- `ios.bundleIdentifier = com.peterpark.app`
+- `android.package = com.peterpark.app`
+
+Credenziali Apple gia' inserite in `eas.json`:
+
+- `submit.production.ios.appleTeamId = HX29Y774Y3`
+
+E' presente un `eas.json` con i profili `development`, `preview`, `preview-simulator`, `production`.
+
+### 11.A Test rapido senza spendere nulla (Expo Go + tunnel)
+
+Per una demo veloce in chiamata col cliente:
+
+```powershell
+npx expo start --tunnel
+```
+
+La prima volta verra' installato `@expo/ngrok`. Quando il dev server e' pronto, mandi al cliente il link `exp://...` o uno screenshot del QR. Lui:
+
+1. Scarica **Expo Go** dall'App Store.
+2. Tap sul link (o scansiona il QR dalla fotocamera iOS) → apre Expo Go → l'app si carica.
+
+**Cosa puo' non funzionare in Expo Go**:
+- La fotocamera per le foto (la galleria invece OK).
+- Eventuali altri moduli nativi non bundled in Expo Go (raro su SDK 54).
+
+E' una soluzione temporanea che richiede il tuo PC acceso col tunnel attivo.
+
+### 11.B Beta vera su iPhone via TestFlight
+
+Richiede **Apple Developer Program** (~99 USD/anno) → [developer.apple.com/programs](https://developer.apple.com/programs/). Approvazione 1-3 giorni.
+
+Una volta che hai l'account attivo:
+
+```powershell
+npm install -g eas-cli
+eas login
+eas init               # collega il progetto al cloud EAS (solo la prima volta)
+
+# Build IPA per beta interna / TestFlight
+eas build --platform ios --profile preview
+
+# Quando vuoi caricarla su TestFlight:
+eas submit -p ios --latest
+```
+
+Durante il primo build, EAS ti chiedera' le credenziali Apple e creera' automaticamente:
+- Distribution certificate
+- Provisioning profile
+- App identifier su App Store Connect
+
+Tutto via prompt, niente Xcode.
+
+Dopo il submit:
+1. Vai su [appstoreconnect.apple.com](https://appstoreconnect.apple.com).
+2. La tua app → tab **TestFlight** → la build apparira' "Processing" per ~10 min poi "Ready to Submit".
+3. **External Testing** → crea un gruppo → aggiungi l'email del cliente → invia inviti.
+4. Il cliente scarica **TestFlight** dall'App Store, apre il link dell'invito, installa PeterPark come app vera.
+
+La prima build esterna richiede una revisione Apple di ~24h. Le successive sono immediate.
+
+### 11.C Aggiornare l'app del tester senza ribuildare
+
+Per fix piccoli (solo JS/asset, niente nuove dipendenze native):
+
+```powershell
+eas update --branch preview
+```
+
+Sul telefono del cliente l'app pesca l'update al prossimo avvio. Risparmia un build completo.
+
+### 11.C bis Versione fissata di `@supabase/supabase-js`
+
+Versione corrente: **`2.105.4` (fissa, niente caret)**.
+
+Motivo: le versioni `2.106.0` e `2.106.1` aggiungono un `import()` dinamico per
+OpenTelemetry che Hermes (motore JS di RN release builds su iOS e Android)
+rifiuta in fase di parse:
+
+```
+main.jsbundle: error: Invalid expression encountered
+... otelModulePromise = import(/* webpackIgnore: true */ OTEL_PKG)
+```
+
+→ rompe le build EAS sia su iOS che Android (vedi
+[supabase/supabase-js#2380](https://github.com/supabase/supabase-js/issues/2380)).
+
+Quando esce la `2.106.2` stable (il fix e' in `2.106.2-canary.0` del 2026-05-22),
+possiamo riaggiornare.
+
+### 11.D Note operative
+
+- **Versioning**: alza `expo.version` in `app.json` per ogni build pubblica. `eas build --profile production` ha `autoIncrement: true` quindi gestisce da solo `buildNumber` (iOS) e `versionCode` (Android).
+- **Variabili d'ambiente**: i valori in `.env.local` non finiscono in build! Vanno configurati su EAS con `eas env:create` (es. `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`) oppure nel dashboard EAS → Environment Variables.
+- **App icon e splash**: per ora sono i placeholder Expo. Prima di pubblicare in produzione vanno sostituiti con le grafiche reali in `assets/images/`.
+- **Privacy nutrition label**: prima del primo submit su App Store Connect ti chiederanno di dichiarare cosa raccogli (posizione, email per auth, foto opzionali). Va compilato a mano una volta.
