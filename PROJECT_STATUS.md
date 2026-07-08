@@ -94,6 +94,49 @@ supabase/
 - [x] La mappa (`app/(tabs)/index.tsx`) invalida la query su ogni INSERT/UPDATE/DELETE
 - [x] Polling ridotto a 60s come fallback (non piu' 15s)
 
+### Ricerca parcheggi "in questa zona" (FATTO)
+
+- [x] `lib/geo.ts`: `haversineMeters()` + `radiusFromRegion()` (nessuna dipendenza esterna)
+- [x] La query non e' piu' legata al solo GPS: si puo' spostare/zoomare la mappa
+- [x] Pulsante flottante "Cerca in questa zona" quando ci si sposta oltre soglia (30% del raggio, min 150m)
+- [x] Raggio di ricerca calcolato dallo zoom visibile (min 300m, max 20km), limite risultati alzato a 50
+- [x] Pulsante FAB per ri-centrarsi sulla propria posizione
+- [x] Icona `magnifyingglass` -> `search` aggiunta al mapping `components/ui/icon-symbol.tsx`
+
+### Ricerca per indirizzo + tipo mappa + migliorie mappa (FATTO)
+
+- [x] Barra di ricerca in alto: geocoding on-device con `Location.geocodeAsync` (nessuna API key), la mappa salta all'indirizzo
+- [x] Toggle tipo mappa: `standard` (stilizzata) <-> `hybrid` (satellite con etichette vie)
+- [x] Cerchio (`Circle`) che mostra visivamente il raggio di ricerca corrente
+- [x] Contatore risultati nella barra inferiore ("N parcheggi in questa zona")
+- [x] Pulsante "x" per svuotare la ricerca; icone `globe`/`map`/`xmark.circle.fill` aggiunte al mapping
+- [x] Callout ricco sul pin: tipo parcheggio, reporter, distanza, scadenza ("Scade tra N min"), note. Tap sul callout apre un menu azioni **Naviga** (apre Apple/Google Maps via `Linking`) / **Prenota (-10)**. Un solo alert, niente doppia conferma.
+- [x] Stato "senza posizione" gestito con UI amichevole (icona + titolo + messaggio per stato: denied / services_off / non disponibile) e pulsante **Apri impostazioni** (`Linking.openSettings()`) + Riprova. Niente piu' messaggi d'errore tecnici. Stato `loading` con spinner.
+- [x] Barra di ricerca ancorata sotto la status bar usando `useSafeAreaInsets` (`SafeAreaProvider` + `initialWindowMetrics` aggiunti in `components/providers.tsx`) — non si sovrappone piu' a notch/icone di sistema.
+
+Nota geocoding: usa il geocoder di sistema (Apple su iOS, ottimo). Se in futuro
+serve autocomplete/precisione maggiore, valutare Google Places (richiede key).
+
+### Punto manuale (gocciolina) + raggio (FATTO)
+
+Mappa (`app/(tabs)/index.tsx`):
+- [x] Pulsante "gocciolina" tra i controlli mappa (o **tieni premuto** sulla mappa) per posizionare un punto di ricerca manuale. Il marker rosso e' **trascinabile** per rifinire.
+- [x] Con il punto attivo, nella barra inferiore compare il selettore **raggio di ricerca** (250 m / 500 m / 1 / 2 / 5 km) + "Rimuovi punto".
+- [x] Il `Circle` riflette il raggio scelto; ricerca ancorata al punto (niente "Cerca in questa zona" in questa modalita').
+- [x] Indirizzo / ricentra / "Cerca qui" azzerano il punto manuale.
+
+Report (`app/report.tsx`):
+- [x] Mini-mappa con gocciolina fissa al centro (la mappa scorre sotto): il parcheggio viene segnalato sul punto scelto, non piu' solo sul GPS.
+- [x] Pulsante "usa la mia posizione" per ricentrare sul GPS. Default = posizione attuale.
+- [x] Icona `mappin.circle.fill` -> `place` aggiunta al mapping.
+
+### Foto parcheggio (DISABILITATE per tenere il DB leggero)
+
+- Il codice foto in `app/report.tsx` e' **commentato** (import, stato `photo`, `pickPhoto`, blocco UI, upload). Riattivabile in futuro togliendo i commenti.
+- `api/storage.ts` e la migration `0002_storage.sql` restano in repo ma inutilizzati.
+- `photo_url` viene sempre inviato `null` alle RPC.
+- Nota: il plugin `expo-image-picker` e i permessi camera/foto sono ancora in `app.json`. Se si vuole un build davvero snello (ed evitare domande Apple sui permessi inutilizzati), rimuovere quel plugin — ma e' un cambio nativo che richiede un nuovo build.
+
 ### Feedback dopo claim (FATTO)
 
 - [x] `app/feedback.tsx`: form con "era libero?" + voto opzionale + commento

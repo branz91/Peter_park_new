@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactNode, useEffect, useState } from 'react';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
 import { getSession, onAuthStateChange } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth';
@@ -47,5 +48,9 @@ export function Providers({ children }: { children: ReactNode }) {
 
   if (!ready) return null;
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </SafeAreaProvider>
+  );
 }

@@ -1,20 +1,28 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
+// --- FOTO DISABILITATE (per tenere il DB leggero). Riattivare in futuro. ---
+// import { Image } from 'expo-image';
+// import * as ImagePicker from 'expo-image-picker';
+// import { uploadSpotPhoto } from '@/api/storage';
+// import { useAuthStore } from '@/stores/auth';
+// --------------------------------------------------------------------------
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import MapView from 'react-native-maps';
 
-import { uploadSpotPhoto } from '@/api/storage';
 import { reportParkingSpot } from '@/api/spots';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useCurrentLocation } from '@/hooks/use-current-location';
 import { useTheme } from '@/hooks/use-theme';
-import { useAuthStore } from '@/stores/auth';
 import type { SpotType } from '@/types/database';
+
+const PICKER_DELTA = 0.004;
+
+type Coord = { latitude: number; longitude: number };
 
 const SPOT_TYPES: { value: SpotType; label: string }[] = [
   { value: 'free', label: 'Libero' },
@@ -31,14 +39,27 @@ export default function ReportScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { colors } = useTheme();
-  const userId = useAuthStore((s) => s.session?.user.id);
+  // const userId = useAuthStore((s) => s.session?.user.id); // usato solo per le foto
   const { location, status: locationStatus, error: locationError, retry: retryLocation } = useCurrentLocation();
 
+  const pickerRef = useRef<MapView | null>(null);
   const [spotType, setSpotType] = useState<SpotType>('free');
   const [duration, setDuration] = useState(10);
   const [notes, setNotes] = useState('');
-  const [photo, setPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  // const [photo, setPhoto] = useState<ImagePicker.ImagePickerAsset | null>(null); // FOTO DISABILITATE
   const [loading, setLoading] = useState(false);
+  // Punto scelto dall'utente sulla mappa (di default la posizione attuale).
+  const [pickedCoord, setPickedCoord] = useState<Coord | null>(null);
+
+  // Appena arriva il GPS, inizializziamo il punto sul quale segnalare.
+  useEffect(() => {
+    if (location && !pickedCoord) {
+      setPickedCoord({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      });
+    }
+  }, [location, pickedCoord]);
 
   useEffect(() => {
     if (locationStatus === 'denied') {
@@ -50,49 +71,65 @@ export default function ReportScreen() {
     }
   }, [locationStatus, router]);
 
-  async function pickPhoto(source: 'camera' | 'library') {
-    const permission =
-      source === 'camera'
-        ? await ImagePicker.requestCameraPermissionsAsync()
-        : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        'Permesso negato',
-        source === 'camera'
-          ? 'Per scattare una foto serve il permesso fotocamera.'
-          : 'Per scegliere una foto serve il permesso galleria.'
-      );
-      return;
-    }
-    const result =
-      source === 'camera'
-        ? await ImagePicker.launchCameraAsync({
-            mediaTypes: ['images'],
-            quality: 0.6,
-          })
-        : await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ['images'],
-            quality: 0.6,
-          });
-    if (result.canceled || result.assets.length === 0) return;
-    setPhoto(result.assets[0]);
+  // --- FOTO DISABILITATE: selezione immagine da fotocamera/galleria. -------
+  // Riattivare insieme agli import e allo stato `photo` in cima al file, e al
+  // blocco UI piu' in basso, quando si vorra' di nuovo permettere le foto.
+  // async function pickPhoto(source: 'camera' | 'library') {
+  //   const permission =
+  //     source === 'camera'
+  //       ? await ImagePicker.requestCameraPermissionsAsync()
+  //       : await ImagePicker.requestMediaLibraryPermissionsAsync();
+  //   if (!permission.granted) {
+  //     Alert.alert(
+  //       'Permesso negato',
+  //       source === 'camera'
+  //         ? 'Per scattare una foto serve il permesso fotocamera.'
+  //         : 'Per scegliere una foto serve il permesso galleria.'
+  //     );
+  //     return;
+  //   }
+  //   const result =
+  //     source === 'camera'
+  //       ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.6 })
+  //       : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6 });
+  //   if (result.canceled || result.assets.length === 0) return;
+  //   setPhoto(result.assets[0]);
+  // }
+  // -------------------------------------------------------------------------
+
+  function recenterPickerToCurrent() {
+    if (!location) return;
+    const coord: Coord = {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+    };
+    setPickedCoord(coord);
+    pickerRef.current?.animateToRegion(
+      { ...coord, latitudeDelta: PICKER_DELTA, longitudeDelta: PICKER_DELTA },
+      400
+    );
   }
 
   async function handleSubmit() {
     if (!location) return;
+    const coord = pickedCoord ?? {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+    };
     setLoading(true);
     try {
-      let photoUrl: string | null = null;
-      if (photo && userId) {
-        photoUrl = await uploadSpotPhoto({
-          userId,
-          fileUri: photo.uri,
-          contentType: photo.mimeType ?? 'image/jpeg',
-        });
-      }
+      // FOTO DISABILITATE: nessun upload, photoUrl resta null.
+      const photoUrl: string | null = null;
+      // if (photo && userId) {
+      //   photoUrl = await uploadSpotPhoto({
+      //     userId,
+      //     fileUri: photo.uri,
+      //     contentType: photo.mimeType ?? 'image/jpeg',
+      //   });
+      // }
       await reportParkingSpot({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
+        latitude: coord.latitude,
+        longitude: coord.longitude,
         spotType,
         notes: notes.trim() || null,
         photoUrl,
@@ -174,6 +211,45 @@ export default function ReportScreen() {
           })}
         </View>
 
+        <ThemedText type="subtitle">Posizione</ThemedText>
+        {location ? (
+          <View style={[styles.pickerWrap, { borderColor: colors.border }]}>
+            <MapView
+              ref={pickerRef}
+              style={styles.picker}
+              showsUserLocation
+              initialRegion={{
+                latitude: location.coords.latitude,
+                longitude: location.coords.longitude,
+                latitudeDelta: PICKER_DELTA,
+                longitudeDelta: PICKER_DELTA,
+              }}
+              onRegionChangeComplete={(r) =>
+                setPickedCoord({ latitude: r.latitude, longitude: r.longitude })
+              }
+            />
+            {/* Gocciolina fissa al centro: la mappa scorre sotto al pin. */}
+            <View style={styles.pickerPin} pointerEvents="none">
+              <View style={styles.pickerPinInner}>
+                <IconSymbol name="mappin.circle.fill" size={38} color={colors.tint} />
+              </View>
+            </View>
+            <Pressable
+              onPress={recenterPickerToCurrent}
+              style={[
+                styles.pickerRecenter,
+                { backgroundColor: colors.background, borderColor: colors.border },
+              ]}
+              accessibilityLabel="Usa la mia posizione"
+            >
+              <IconSymbol name="location.fill" size={18} color={colors.tint} />
+            </Pressable>
+          </View>
+        ) : null}
+        <ThemedText style={styles.hint}>
+          Trascina la mappa per posizionare la gocciolina dove lasci il parcheggio.
+        </ThemedText>
+
         <TextField
           label="Note (opzionale)"
           value={notes}
@@ -182,6 +258,8 @@ export default function ReportScreen() {
           multiline
         />
 
+        {/* --- FOTO DISABILITATE (DB leggero). Riattivare questo blocco insieme
+            allo stato `photo` e a `pickPhoto`. ---
         <ThemedText style={styles.label}>Foto (opzionale)</ThemedText>
         {photo ? (
           <View style={styles.photoBox}>
@@ -209,6 +287,7 @@ export default function ReportScreen() {
             </View>
           </View>
         )}
+        --- fine blocco foto disabilitato --- */}
 
         <Button
           title="Pubblica segnalazione"
@@ -216,9 +295,7 @@ export default function ReportScreen() {
           loading={loading}
           disabled={!location}
         />
-        {location ? (
-          <ThemedText style={styles.hint}>Verra usata la tua posizione attuale.</ThemedText>
-        ) : locationStatus === 'loading' ? (
+        {location ? null : locationStatus === 'loading' ? (
           <ThemedText style={styles.hint}>Recupero posizione...</ThemedText>
         ) : (
           <View style={styles.locationError}>
@@ -243,6 +320,32 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   chipDuration: { minWidth: 56, alignItems: 'center' },
+  pickerWrap: {
+    height: 220,
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  picker: { flex: 1 },
+  pickerPin: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Alza il pin di meta' altezza cosi' la punta cade sul centro della mappa.
+  pickerPinInner: { transform: [{ translateY: -19 }] },
+  pickerRecenter: {
+    position: 'absolute',
+    right: 10,
+    bottom: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   hint: { textAlign: 'center', fontSize: 12, marginTop: 4, opacity: 0.7 },
   label: { marginTop: 4, fontWeight: '700' },
   photoButtons: { flexDirection: 'row', gap: 8 },

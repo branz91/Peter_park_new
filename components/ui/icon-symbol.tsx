@@ -21,6 +21,11 @@ const MAPPING = {
   'chevron.right': 'chevron-right',
   'plus.circle.fill': 'add-circle',
   'location.fill': 'my-location',
+  'magnifyingglass': 'search',
+  'globe': 'public',
+  'map': 'map',
+  'mappin.circle.fill': 'place',
+  'xmark.circle.fill': 'cancel',
   'gear': 'settings',
   'trophy.fill': 'emoji-events',
 } as IconMapping;
