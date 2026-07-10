@@ -416,15 +416,61 @@ Dopo il submit:
 
 La prima build esterna richiede una revisione Apple di ~24h. Le successive sono immediate.
 
-### 11.C Aggiornare l'app del tester senza ribuildare
+### 11.B bis APK Android per test (nessuno store, nessun account a pagamento)
 
-Per fix piccoli (solo JS/asset, niente nuove dipendenze native):
+Android non richiede Apple Developer ne' revisione: si genera un **APK** installabile
+direttamente (basta abilitare "installa da sorgenti sconosciute" sul telefono).
+
+Il profilo `preview` in `eas.json` produce un APK (`distribution: internal` +
+`android.buildType: apk`). Il keystore viene creato/gestito automaticamente da EAS
+(credenziali remote), niente da fare a mano.
 
 ```powershell
-eas update --branch preview
+eas build --platform android --profile preview
 ```
 
-Sul telefono del cliente l'app pesca l'update al prossimo avvio. Risparmia un build completo.
+A build finita EAS stampa un link `https://expo.dev/artifacts/eas/....apk` (e un QR):
+lo mandi al tester, lui scarica e installa. Le variabili Supabase vengono lette
+dall'ambiente `preview` su EAS (gia' configurate), quindi l'APK si collega al DB
+senza passaggi extra.
+
+### 11.C Aggiornare l'app del tester senza ribuildare (EAS Update / OTA)
+
+Per fix o feature **solo JS/asset** (niente nuove dipendenze native) NON serve
+rifare la build: si pubblica un update OTA sullo stesso canale della build gia'
+installata. L'app lo scarica al successivo avvio.
+
+**Vincolo fondamentale**: l'update raggiunge solo le build con la **stessa
+`runtimeVersion`** (qui = `expo.version` di `app.json`, policy `appVersion`) e
+sullo stesso **canale**. Se alzi `expo.version`, "scolleghi" l'OTA dalle build
+vecchie.
+
+Stato attuale (aggiornato al 2026-07-09):
+
+- Build iOS live su TestFlight: **`1.0.0` (build 2)**, canale `production`, `runtimeVersion 1.0.0`.
+- Per questo `expo.version` e' tenuto a **`1.0.0`**: cosi' gli OTA su `production` raggiungono quella build.
+
+Comando usato per applicare le ultime feature (pin manuale, raggio, selettore
+posizione nel report, ecc.) alla build iOS gia' caricata:
+
+```powershell
+$env:CI=1        # `--non-interactive` non e' supportato da `eas update`
+eas update --branch production --platform ios --message "descrizione modifiche"
+```
+
+**IMPORTANTE — build solo iOS/Android, mai `--platform all`**: `react-native-maps`
+non e' compatibile col bundle **web** (importa `codegenNativeCommands`, native-only).
+Dato che `app/report.tsx` e `app/(tabs)/index.tsx` importano `react-native-maps`,
+un export web (`--platform all`, default) **fallisce**. Specifica sempre
+`--platform ios` (o `android`). L'app mobile non e' toccata; il target web non e'
+usato.
+
+Per il canale interno di test Android vale lo stesso:
+
+```powershell
+$env:CI=1
+eas update --branch preview --platform android --message "..."
+```
 
 ### 11.C bis Versione fissata di `@supabase/supabase-js`
 
@@ -445,9 +491,37 @@ main.jsbundle: error: Invalid expression encountered
 Quando esce la `2.106.2` stable (il fix e' in `2.106.2-canary.0` del 2026-05-22),
 possiamo riaggiornare.
 
+### 11.C ter Google Maps API key su Android (OBBLIGATORIA per l'APK)
+
+Sintomo: in `expo start` / Expo Go tutto ok, ma nell'**APK standalone l'app
+crasha** appena si apre la mappa (la prima scheda dopo il login). Con la new
+architecture attiva il crash e' immediato.
+
+Causa: `react-native-maps` su Android usa Google Maps e richiede una
+**Google Maps API key** nel manifest. Expo Go usa la propria chiave, quindi in
+dev non si nota; l'APK invece non ne ha una → crash della view nativa.
+
+Fix implementato:
+
+- `app.config.js` (config dinamica sopra `app.json`) inietta la chiave in
+  `android.config.googleMaps.apiKey` leggendola dalla variabile d'ambiente
+  `GOOGLE_MAPS_API_KEY` (cosi' non finisce nel repo).
+- La chiave e' salvata negli Environment EAS `preview` e `production`
+  (`eas env:create --name GOOGLE_MAPS_API_KEY ...`) e in `.env.local` per i dev
+  build locali.
+- Verifica config: `npx expo config --type prebuild --json` → deve mostrare
+  `android.config.googleMaps.apiKey`.
+
+Chiave creata su Google Cloud → **Maps SDK for Android** abilitata → credenziale
+Chiave API. **Da restringere** (App Android: package `com.peterpark.app` +
+SHA-1 del keystore EAS, ottenibile con `eas credentials -p android`) e limitare
+alla sola Maps SDK for Android.
+
+Nota iOS: usa Apple Maps di default, quindi **non serve** una chiave Google su iOS.
+
 ### 11.D Note operative
 
-- **Versioning**: alza `expo.version` in `app.json` per ogni build pubblica. `eas build --profile production` ha `autoIncrement: true` quindi gestisce da solo `buildNumber` (iOS) e `versionCode` (Android).
+- **Versioning**: `eas build --profile production` ha `autoIncrement: true` quindi gestisce da solo `buildNumber` (iOS) e `versionCode` (Android). Attenzione pero': `expo.version` = `runtimeVersion` (policy `appVersion`). Se vuoi ancora spingere OTA sulla build 1.0.0 live, **NON** alzare `expo.version`. Alzalo solo quando fai una **nuova build nativa** (che avra' un nuovo runtime e un suo canale OTA).
 - **Variabili d'ambiente**: i valori in `.env.local` non finiscono in build! Vanno configurati su EAS con `eas env:create` (es. `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`) oppure nel dashboard EAS → Environment Variables.
 - **App icon e splash**: per ora sono i placeholder Expo. Prima di pubblicare in produzione vanno sostituiti con le grafiche reali in `assets/images/`.
 - **Privacy nutrition label**: prima del primo submit su App Store Connect ti chiederanno di dichiarare cosa raccogli (posizione, email per auth, foto opzionali). Va compilato a mano una volta.
