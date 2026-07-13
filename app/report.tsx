@@ -5,13 +5,25 @@ import { useQueryClient } from '@tanstack/react-query';
 // import { uploadSpotPhoto } from '@/api/storage';
 // import { useAuthStore } from '@/stores/auth';
 // --------------------------------------------------------------------------
+import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Keyboard,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 import MapView from 'react-native-maps';
 
 import { reportParkingSpot } from '@/api/spots';
 import { Button } from '@/components/button';
+import { LocationNotice } from '@/components/location-notice';
 import { TextField } from '@/components/text-field';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -40,7 +52,7 @@ export default function ReportScreen() {
   const queryClient = useQueryClient();
   const { colors } = useTheme();
   // const userId = useAuthStore((s) => s.session?.user.id); // usato solo per le foto
-  const { location, status: locationStatus, error: locationError, retry: retryLocation } = useCurrentLocation();
+  const { location, status: locationStatus, canAskAgain, retry: retryLocation } = useCurrentLocation();
 
   const pickerRef = useRef<MapView | null>(null);
   const [spotType, setSpotType] = useState<SpotType>('free');
@@ -50,6 +62,8 @@ export default function ReportScreen() {
   const [loading, setLoading] = useState(false);
   // Punto scelto dall'utente sulla mappa (di default la posizione attuale).
   const [pickedCoord, setPickedCoord] = useState<Coord | null>(null);
+  const [addressQuery, setAddressQuery] = useState('');
+  const [geocoding, setGeocoding] = useState(false);
 
   // Appena arriva il GPS, inizializziamo il punto sul quale segnalare.
   useEffect(() => {
@@ -61,15 +75,46 @@ export default function ReportScreen() {
     }
   }, [location, pickedCoord]);
 
-  useEffect(() => {
-    if (locationStatus === 'denied') {
-      Alert.alert(
-        'Permesso necessario',
-        'Serve l accesso alla posizione per segnalare un parcheggio.',
-        [{ text: 'OK', onPress: () => router.back() }]
+  function recenterPickerToCurrent() {
+    if (!location) return;
+    const coord: Coord = {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+    };
+    setPickedCoord(coord);
+    pickerRef.current?.animateToRegion(
+      { ...coord, latitudeDelta: PICKER_DELTA, longitudeDelta: PICKER_DELTA },
+      400
+    );
+  }
+
+  // Cerca la via/indirizzo digitato e sposta la gocciolina su quel punto.
+  async function handleSearchAddress() {
+    const query = addressQuery.trim();
+    if (!query) return;
+    Keyboard.dismiss();
+    setGeocoding(true);
+    try {
+      const results = await Location.geocodeAsync(query);
+      if (results.length === 0) {
+        Alert.alert(
+          'Nessun risultato',
+          'Non ho trovato questo indirizzo. Prova a essere piu specifico (via, citta).'
+        );
+        return;
+      }
+      const coord: Coord = { latitude: results[0].latitude, longitude: results[0].longitude };
+      setPickedCoord(coord);
+      pickerRef.current?.animateToRegion(
+        { ...coord, latitudeDelta: PICKER_DELTA, longitudeDelta: PICKER_DELTA },
+        600
       );
+    } catch (e) {
+      Alert.alert('Errore ricerca', e instanceof Error ? e.message : String(e));
+    } finally {
+      setGeocoding(false);
     }
-  }, [locationStatus, router]);
+  }
 
   // --- FOTO DISABILITATE: selezione immagine da fotocamera/galleria. -------
   // Riattivare insieme agli import e allo stato `photo` in cima al file, e al
@@ -96,19 +141,6 @@ export default function ReportScreen() {
   //   setPhoto(result.assets[0]);
   // }
   // -------------------------------------------------------------------------
-
-  function recenterPickerToCurrent() {
-    if (!location) return;
-    const coord: Coord = {
-      latitude: location.coords.latitude,
-      longitude: location.coords.longitude,
-    };
-    setPickedCoord(coord);
-    pickerRef.current?.animateToRegion(
-      { ...coord, latitudeDelta: PICKER_DELTA, longitudeDelta: PICKER_DELTA },
-      400
-    );
-  }
 
   async function handleSubmit() {
     if (!location) return;
@@ -149,9 +181,86 @@ export default function ReportScreen() {
     }
   }
 
+  // Senza posizione mostriamo la scheda che spiega e chiede permesso/GPS.
+  if (!location) {
+    return (
+      <LocationNotice status={locationStatus} canAskAgain={canAskAgain} onRetry={retryLocation} />
+    );
+  }
+
   return (
     <ThemedView style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <ThemedText type="subtitle">Dove lasci il parcheggio</ThemedText>
+
+        <View style={[styles.pickerWrap, { borderColor: colors.border }]}>
+          <MapView
+            ref={pickerRef}
+            style={styles.picker}
+            showsUserLocation
+            initialRegion={{
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+              latitudeDelta: PICKER_DELTA,
+              longitudeDelta: PICKER_DELTA,
+            }}
+            onRegionChangeComplete={(r) =>
+              setPickedCoord({ latitude: r.latitude, longitude: r.longitude })
+            }
+          />
+
+          {/* Barra di ricerca via/indirizzo sopra la mappa */}
+          <View
+            style={[
+              styles.searchBar,
+              { backgroundColor: colors.background, borderColor: colors.border },
+              Platform.OS === 'ios'
+                ? { shadowColor: '#000', shadowOpacity: 0.15, shadowOffset: { width: 0, height: 2 }, shadowRadius: 6 }
+                : { elevation: 4 },
+            ]}
+          >
+            <IconSymbol name="magnifyingglass" size={18} color={colors.textMuted} />
+            <TextInput
+              value={addressQuery}
+              onChangeText={setAddressQuery}
+              onSubmitEditing={handleSearchAddress}
+              placeholder="Scrivi la via o l'indirizzo..."
+              placeholderTextColor={colors.textMuted}
+              returnKeyType="search"
+              style={[styles.searchInput, { color: colors.text }]}
+            />
+            {geocoding ? (
+              <ActivityIndicator size="small" color={colors.tint} />
+            ) : addressQuery.length > 0 ? (
+              <Pressable onPress={() => setAddressQuery('')} hitSlop={8} accessibilityLabel="Cancella">
+                <IconSymbol name="xmark.circle.fill" size={18} color={colors.textMuted} />
+              </Pressable>
+            ) : null}
+          </View>
+
+          {/* Gocciolina fissa al centro: la mappa scorre sotto al pin. */}
+          <View style={styles.pickerPin} pointerEvents="none">
+            <View style={styles.pickerPinInner}>
+              <IconSymbol name="mappin.circle.fill" size={40} color={colors.tint} />
+            </View>
+          </View>
+
+          <Pressable
+            onPress={recenterPickerToCurrent}
+            style={[
+              styles.pickerRecenter,
+              { backgroundColor: colors.background, borderColor: colors.border },
+            ]}
+            accessibilityLabel="Usa la mia posizione"
+          >
+            <IconSymbol name="location.fill" size={18} color={colors.tint} />
+          </Pressable>
+        </View>
+        <ThemedText style={styles.hint}>
+          Trascina la mappa, scrivi la via o usa la tua posizione per centrare la gocciolina sul punto
+          esatto.
+        </ThemedText>
+
         <ThemedText type="subtitle">Tipo di parcheggio</ThemedText>
         <View style={styles.chips}>
           {SPOT_TYPES.map((t) => {
@@ -168,12 +277,7 @@ export default function ReportScreen() {
                   },
                 ]}
               >
-                <ThemedText
-                  style={{
-                    color: active ? colors.onTint : colors.text,
-                    fontWeight: '600',
-                  }}
-                >
+                <ThemedText style={{ color: active ? colors.onTint : colors.text, fontWeight: '600' }}>
                   {t.label}
                 </ThemedText>
               </Pressable>
@@ -198,57 +302,13 @@ export default function ReportScreen() {
                   },
                 ]}
               >
-                <ThemedText
-                  style={{
-                    color: active ? colors.onTint : colors.text,
-                    fontWeight: '600',
-                  }}
-                >
+                <ThemedText style={{ color: active ? colors.onTint : colors.text, fontWeight: '600' }}>
                   {d}
                 </ThemedText>
               </Pressable>
             );
           })}
         </View>
-
-        <ThemedText type="subtitle">Posizione</ThemedText>
-        {location ? (
-          <View style={[styles.pickerWrap, { borderColor: colors.border }]}>
-            <MapView
-              ref={pickerRef}
-              style={styles.picker}
-              showsUserLocation
-              initialRegion={{
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
-                latitudeDelta: PICKER_DELTA,
-                longitudeDelta: PICKER_DELTA,
-              }}
-              onRegionChangeComplete={(r) =>
-                setPickedCoord({ latitude: r.latitude, longitude: r.longitude })
-              }
-            />
-            {/* Gocciolina fissa al centro: la mappa scorre sotto al pin. */}
-            <View style={styles.pickerPin} pointerEvents="none">
-              <View style={styles.pickerPinInner}>
-                <IconSymbol name="mappin.circle.fill" size={38} color={colors.tint} />
-              </View>
-            </View>
-            <Pressable
-              onPress={recenterPickerToCurrent}
-              style={[
-                styles.pickerRecenter,
-                { backgroundColor: colors.background, borderColor: colors.border },
-              ]}
-              accessibilityLabel="Usa la mia posizione"
-            >
-              <IconSymbol name="location.fill" size={18} color={colors.tint} />
-            </Pressable>
-          </View>
-        ) : null}
-        <ThemedText style={styles.hint}>
-          Trascina la mappa per posizionare la gocciolina dove lasci il parcheggio.
-        </ThemedText>
 
         <TextField
           label="Note (opzionale)"
@@ -289,29 +349,14 @@ export default function ReportScreen() {
         )}
         --- fine blocco foto disabilitato --- */}
 
-        <Button
-          title="Pubblica segnalazione"
-          onPress={handleSubmit}
-          loading={loading}
-          disabled={!location}
-        />
-        {location ? null : locationStatus === 'loading' ? (
-          <ThemedText style={styles.hint}>Recupero posizione...</ThemedText>
-        ) : (
-          <View style={styles.locationError}>
-            <ThemedText style={styles.hint}>
-              {locationError ?? 'Posizione non disponibile.'}
-            </ThemedText>
-            <Button title="Riprova" variant="ghost" onPress={retryLocation} />
-          </View>
-        )}
+        <Button title="Pubblica segnalazione" onPress={handleSubmit} loading={loading} />
       </ScrollView>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 24, paddingTop: 48, gap: 14 },
+  container: { padding: 24, paddingTop: 20, gap: 14 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     paddingHorizontal: 14,
@@ -321,20 +366,34 @@ const styles = StyleSheet.create({
   },
   chipDuration: { minWidth: 56, alignItems: 'center' },
   pickerWrap: {
-    height: 220,
+    height: 360,
     borderRadius: 14,
     borderWidth: 1,
     overflow: 'hidden',
     position: 'relative',
   },
   picker: { flex: 1 },
+  searchBar: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    right: 10,
+    height: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  searchInput: { flex: 1, fontSize: 15, paddingVertical: 0 },
   pickerPin: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
   },
   // Alza il pin di meta' altezza cosi' la punta cade sul centro della mappa.
-  pickerPinInner: { transform: [{ translateY: -19 }] },
+  pickerPinInner: { transform: [{ translateY: -20 }] },
   pickerRecenter: {
     position: 'absolute',
     right: 10,
@@ -346,7 +405,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  hint: { textAlign: 'center', fontSize: 12, marginTop: 4, opacity: 0.7 },
+  hint: { fontSize: 12, opacity: 0.7 },
   label: { marginTop: 4, fontWeight: '700' },
   photoButtons: { flexDirection: 'row', gap: 8 },
   photoBox: { gap: 8 },
@@ -357,5 +416,4 @@ const styles = StyleSheet.create({
   },
   photoActions: { flexDirection: 'row', gap: 8 },
   photoActionItem: { flex: 1 },
-  locationError: { gap: 8, marginTop: 4 },
 });

@@ -7,6 +7,12 @@ interface UseCurrentLocationResult {
   location: Location.LocationObject | null;
   status: LocationStatus;
   error: string | null;
+  /**
+   * Quando lo stato e' `denied`, indica se l'OS puo' ancora mostrare il dialog
+   * di richiesta permesso (`true`) oppure se l'utente lo ha bloccato in modo
+   * permanente e bisogna mandarlo nelle impostazioni dell'app (`false`).
+   */
+  canAskAgain: boolean;
   retry: () => void;
 }
 
@@ -26,23 +32,28 @@ export function useCurrentLocation(): UseCurrentLocationResult {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [status, setStatus] = useState<LocationStatus>('loading');
   const [error, setError] = useState<string | null>(null);
+  const [canAskAgain, setCanAskAgain] = useState(true);
 
   const fetchLocation = useCallback(async () => {
     setStatus('loading');
     setError(null);
 
     try {
-      const servicesEnabled = await Location.hasServicesEnabledAsync();
-      if (!servicesEnabled) {
-        setStatus('services_off');
-        setError('I servizi di localizzazione sono spenti. Attivali dalle impostazioni di sistema.');
-        return;
-      }
-
+      // 1) Permesso: se manca lo richiediamo (dialog OS). Lo facciamo PRIMA del
+      // check servizi, cosi' la richiesta scatta davvero quando serve.
       const permission = await Location.requestForegroundPermissionsAsync();
+      setCanAskAgain(permission.canAskAgain);
       if (permission.status !== 'granted') {
         setStatus('denied');
         setError('Permesso di accesso alla posizione negato.');
+        return;
+      }
+
+      // 2) Servizi di localizzazione (GPS) accesi a livello di sistema.
+      const servicesEnabled = await Location.hasServicesEnabledAsync();
+      if (!servicesEnabled) {
+        setStatus('services_off');
+        setError('I servizi di localizzazione (GPS) sono spenti. Attivali dalle impostazioni del telefono.');
         return;
       }
 
@@ -81,5 +92,5 @@ export function useCurrentLocation(): UseCurrentLocationResult {
     fetchLocation();
   }, [fetchLocation]);
 
-  return { location, status, error, retry: fetchLocation };
+  return { location, status, error, canAskAgain, retry: fetchLocation };
 }

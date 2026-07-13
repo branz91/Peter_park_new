@@ -42,9 +42,10 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="search" options={{ headerShown: true, title: 'Cerca Parcheggio' }} />
           <Stack.Screen
             name="report"
-            options={{ presentation: 'modal', headerShown: true, title: 'Segnala parcheggio' }}
+            options={{ presentation: 'modal', headerShown: true, title: 'Lascia Parcheggio' }}
           />
         </Stack>
         <StatusBar style="auto" />

@@ -130,6 +130,23 @@ Report (`app/report.tsx`):
 - [x] Pulsante "usa la mia posizione" per ricentrare sul GPS. Default = posizione attuale.
 - [x] Icona `mappin.circle.fill` -> `place` aggiunta al mapping.
 
+### Home a due pulsanti + rotte dedicate (FATTO)
+
+Ristrutturazione navigazione:
+- [x] `app/(tabs)/index.tsx` e' ora una **home** con due sole card: **"Cerca Parcheggio"** e **"Lascia Parcheggio"** (nessuna posizione richiesta all'avvio). Tab rinominata "Home" (icona `house.fill`).
+- [x] **"Cerca Parcheggio"** → `app/search.tsx` (nuova): la mappa con ricerca (indirizzo, pin manuale, raggio, spot, prenota). Header nativo con back.
+- [x] **"Lascia Parcheggio"** → `app/report.tsx` (modale): ora con **mappa grande** (360px) + **barra ricerca via** (geocoding) sopra la mappa, gocciolina centrale, "usa la mia posizione".
+- [x] La posizione viene richiesta **solo** entrando in Cerca/Lascia, non all'avvio dell'app.
+- [x] Rotte registrate in `app/_layout.tsx` (`search` con header "Cerca Parcheggio", `report` modale "Lascia Parcheggio").
+
+Permessi/posizione (fix UX):
+- [x] `hooks/use-current-location.ts`: prima **richiede il permesso** (dialog OS), poi controlla il **GPS**; espone `canAskAgain`.
+- [x] Nuovo componente `components/location-notice.tsx` con azione corretta per ogni caso:
+  - **GPS spento** → apre le **impostazioni di localizzazione di sistema** (Android: intent `LOCATION_SOURCE_SETTINGS`; iOS: apre Impostazioni + istruzioni, Apple non espone deep-link al toggle).
+  - **Permesso negato ma richiedibile** → ri-lancia la richiesta di permesso.
+  - **Permesso bloccato** → apre le impostazioni dell'app.
+  - Non manda piu' erroneamente alle impostazioni app quando il problema e' il GPS spento.
+
 ### Foto parcheggio (DISABILITATE per tenere il DB leggero)
 
 - Il codice foto in `app/report.tsx` e' **commentato** (import, stato `photo`, `pickPhoto`, blocco UI, upload). Riattivabile in futuro togliendo i commenti.
